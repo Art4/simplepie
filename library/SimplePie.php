@@ -33,7 +33,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  *
  * @package SimplePie
- * @version 1.5.8
+ * @version 1.6.0
  * @copyright 2004-2017 Ryan Parman, Sam Sneddon, Ryan McCue
  * @author Ryan Parman
  * @author Sam Sneddon
@@ -50,7 +50,7 @@ define('SIMPLEPIE_NAME', 'SimplePie');
 /**
  * SimplePie Version
  */
-define('SIMPLEPIE_VERSION', '1.5.8');
+define('SIMPLEPIE_VERSION', '1.6.0');
 
 /**
  * SimplePie Build
@@ -657,7 +657,7 @@ class SimplePie
 	public $strip_htmltags = array('base', 'blink', 'body', 'doctype', 'embed', 'font', 'form', 'frame', 'frameset', 'html', 'iframe', 'input', 'marquee', 'meta', 'noscript', 'object', 'param', 'script', 'style');
 
 	/**
-	 * @var array Stores the default tags to be stripped by rename_attributes().
+	 * @var array Stores the default attributes to be renamed by rename_attributes().
 	 * @see SimplePie::rename_attributes()
 	 * @access private
 	 */
@@ -3394,3 +3394,5 @@ class SimplePie
 		}
 	}
 }
+
+class_alias('SimplePie', 'SimplePie\SimplePie', false);

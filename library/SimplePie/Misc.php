@@ -2263,3 +2263,5 @@ function embed_wmedia(width, height, link) {
 		return preg_replace('#^(https?://)[^/:@]+:[^/:@]+@#i', '$1', $url);
 	}
 }
+
+class_alias('SimplePie_Misc', 'SimplePie\Misc', false);

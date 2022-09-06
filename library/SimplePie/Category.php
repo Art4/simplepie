@@ -160,3 +160,5 @@ class SimplePie_Category
 		return $this->type;
 	}
 }
+
+class_alias('SimplePie_Category', 'SimplePie\Category', false);
