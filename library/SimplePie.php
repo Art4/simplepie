@@ -75,6 +75,12 @@ define('SIMPLEPIE_USERAGENT', SIMPLEPIE_NAME . '/' . SIMPLEPIE_VERSION . ' (Feed
 define('SIMPLEPIE_LINKBACK', '<a href="' . SIMPLEPIE_URL . '" title="' . SIMPLEPIE_NAME . ' ' . SIMPLEPIE_VERSION . '">' . SIMPLEPIE_NAME . '</a>');
 
 /**
+ * Use syslog to report HTTP requests done by SimplePie.
+ * @see SimplePie::set_syslog()
+ */
+define('SIMPLEPIE_SYSLOG', true);	//FreshRSS
+
+/**
  * No Autodiscovery
  * @see SimplePie::set_autodiscovery_level()
  */
@@ -429,7 +435,7 @@ class SimplePie
 	 * @see SimplePie::status_code()
 	 * @access private
 	 */
-	public $status_code;
+	public $status_code = 0;
 
 	/**
 	 * @var object Instance of SimplePie_Sanitize (or other class)
@@ -651,10 +657,23 @@ class SimplePie
 	public $strip_htmltags = array('base', 'blink', 'body', 'doctype', 'embed', 'font', 'form', 'frame', 'frameset', 'html', 'iframe', 'input', 'marquee', 'meta', 'noscript', 'object', 'param', 'script', 'style');
 
 	/**
+	 * @var array Stores the default tags to be stripped by rename_attributes().
+	 * @see SimplePie::rename_attributes()
+	 * @access private
+	 */
+	public $rename_attributes = array();
+
+	/**
 	 * @var bool Should we throw exceptions, or use the old-style error property?
 	 * @access private
 	 */
 	public $enable_exceptions = false;
+
+	/**
+	 * Use syslog to report HTTP requests done by SimplePie.
+	 * @see SimplePie::set_syslog()
+	 */
+	public $syslog_enabled = SIMPLEPIE_SYSLOG;
 
 	/**
 	 * The SimplePie class contains feed level data and options
@@ -1223,6 +1242,15 @@ class SimplePie
 		$this->sanitize->encode_instead_of_strip($enable);
 	}
 
+	public function rename_attributes($attribs = '')
+	{
+		if ($attribs === '')
+		{
+			$attribs = $this->rename_attributes;
+		}
+		$this->sanitize->rename_attributes($attribs);
+	}
+
 	public function strip_attributes($attribs = '')
 	{
 		if ($attribs === '')
@@ -1239,6 +1267,14 @@ class SimplePie
 			$attribs = $this->add_attributes;
 		}
 		$this->sanitize->add_attributes($attribs);
+	}
+
+	/**
+	 * Use syslog to report HTTP requests done by SimplePie.
+	 */
+	public function set_syslog($value = SIMPLEPIE_SYSLOG)	//FreshRSS
+	{
+		$this->syslog_enabled = $value == true;
 	}
 
 	/**
@@ -1340,6 +1376,28 @@ class SimplePie
 		$this->enable_exceptions = $enable;
 	}
 
+	function cleanMd5($rss)
+	{
+		//Process by chunks not to use too much memory
+		if (($stream = fopen('php://temp', 'r+')) &&
+			fwrite($stream, $rss) &&
+			rewind($stream))
+		{
+			$ctx = hash_init('md5');
+			while ($stream_data = fread($stream, 1048576))
+			{
+				hash_update($ctx, preg_replace([
+					'#<(lastBuildDate|pubDate|updated|feedDate|dc:date|slash:comments)>[^<]+</\\1>#',
+					'#<(media:starRating|media:statistics) [^/<>]+/>#',
+					'#<!--.+?-->#s',
+				], '', $stream_data));
+			}
+			fclose($stream);
+			return hash_final($ctx);
+		}
+		return '';
+	}
+
 	/**
 	 * Initialize the feed object
 	 *
@@ -1347,7 +1405,7 @@ class SimplePie
 	 * configuration options get processed, feeds are fetched, cached, and
 	 * parsed, and all of that other good stuff.
 	 *
-	 * @return boolean True if successful, false otherwise
+	 * @return boolean|integer positive integer with modification time if using cache, boolean true if otherwise successful, false otherwise
 	 */
 	public function init()
 	{
@@ -1434,13 +1492,18 @@ class SimplePie
 			// Fetch the data via SimplePie_File into $this->raw_data
 			if (($fetched = $this->fetch_data($cache)) === true)
 			{
-				return true;
+				return empty($this->data['mtime']) ? false : $this->data['mtime'];
 			}
 			elseif ($fetched === false) {
 				return false;
 			}
 
 			list($headers, $sniffed) = $fetched;
+
+			if (isset($this->data['md5']))
+			{
+				$md5 = $this->data['md5'];
+			}
 		}
 
 		// Empty response check
@@ -1471,14 +1534,20 @@ class SimplePie
 				{
 					$encodings[] = strtoupper($charset[1]);
 				}
-				$encodings = array_merge($encodings, $this->registry->call('Misc', 'xml_encoding', array($this->raw_data, &$this->registry)));
-				$encodings[] = 'UTF-8';
+				else
+				{
+					$encodings[] = '';	//FreshRSS: Let the DOM parser decide first
+				}
 			}
 			elseif (in_array($sniffed, $text_types) || substr($sniffed, 0, 5) === 'text/' && substr($sniffed, -4) === '+xml')
 			{
 				if (isset($headers['content-type']) && preg_match('/;\x20?charset=([^;]*)/i', $headers['content-type'], $charset))
 				{
 					$encodings[] = strtoupper($charset[1]);
+				}
+				else
+				{
+					$encodings[] = '';	//FreshRSS: Let the DOM parser decide first
 				}
 				$encodings[] = 'US-ASCII';
 			}
@@ -1501,13 +1570,14 @@ class SimplePie
 		foreach ($encodings as $encoding)
 		{
 			// Change the encoding to UTF-8 (as we always use UTF-8 internally)
-			if ($utf8_data = $this->registry->call('Misc', 'change_encoding', array($this->raw_data, $encoding, 'UTF-8')))
+			if ($utf8_data = (empty($encoding) || $encoding === 'UTF-8') ? $this->raw_data :	//FreshRSS
+				$this->registry->call('Misc', 'change_encoding', array($this->raw_data, $encoding, 'UTF-8')))
 			{
 				// Create new parser
 				$parser = $this->registry->create('Parser');
 
 				// If it's parsed fine
-				if ($parser->parse($utf8_data, 'UTF-8', $this->permanent_url))
+				if ($parser->parse($utf8_data, empty($encoding) ? '' : 'UTF-8', $this->permanent_url))	//FreshRSS
 				{
 					$this->data = $parser->get_data();
 					if (!($this->get_type() & ~SIMPLEPIE_TYPE_NONE))
@@ -1522,6 +1592,8 @@ class SimplePie
 						$this->data['headers'] = $headers;
 					}
 					$this->data['build'] = SIMPLEPIE_BUILD;
+					$this->data['mtime'] = time();
+					$this->data['md5'] = empty($md5) ? $this->cleanMd5($this->raw_data) : $md5;
 
 					// Cache the file if caching is enabled
 					if ($cache && !$cache->save($this))
@@ -1578,7 +1650,12 @@ class SimplePie
 		{
 			// Load the Cache
 			$this->data = $cache->load();
-			if (!empty($this->data))
+			if ($cache->mtime() + $this->cache_duration > time())
+			{
+				$this->raw_data = false;
+				return true;	// If the cache is still valid, just return true
+			}
+			elseif (!empty($this->data))
 			{
 				// If the cache is for an outdated build of SimplePie
 				if (!isset($this->data['build']) || $this->data['build'] !== SIMPLEPIE_BUILD)
@@ -1610,64 +1687,60 @@ class SimplePie
 					}
 				}
 				// Check if the cache has been updated
-				elseif ($cache->mtime() + $this->cache_duration < time())
-				{
-					// Want to know if we tried to send last-modified and/or etag headers
-					// when requesting this file. (Note that it's up to the file to
-					// support this, but we don't always send the headers either.)
-					$this->check_modified = true;
-					if (isset($this->data['headers']['last-modified']) || isset($this->data['headers']['etag']))
-					{
-						$headers = array(
-							'Accept' => 'application/atom+xml, application/rss+xml, application/rdf+xml;q=0.9, application/xml;q=0.8, text/xml;q=0.8, text/html;q=0.7, unknown/unknown;q=0.1, application/unknown;q=0.1, */*;q=0.1',
-						);
-						if (isset($this->data['headers']['last-modified']))
-						{
-							$headers['if-modified-since'] = $this->data['headers']['last-modified'];
-						}
-						if (isset($this->data['headers']['etag']))
-						{
-							$headers['if-none-match'] = $this->data['headers']['etag'];
-						}
-
-						$file = $this->registry->create('File', array($this->feed_url, $this->timeout/10, 5, $headers, $this->useragent, $this->force_fsockopen, $this->curl_options));
-						$this->status_code = $file->status_code;
-
-						if ($file->success)
-						{
-							if ($file->status_code === 304)
-							{
-								// Set raw_data to false here too, to signify that the cache
-								// is still valid.
-								$this->raw_data = false;
-								$cache->touch();
-								return true;
-							}
-						}
-						else
-						{
-							$this->check_modified = false;
-							if($this->force_cache_fallback)
-							{
-								$cache->touch();
-								return true;
-							}
-
-							unset($file);
-						}
-					}
-				}
-				// If the cache is still valid, just return true
 				else
 				{
-					$this->raw_data = false;
-					return true;
+					$headers = array(
+						'Accept' => 'application/atom+xml, application/rss+xml, application/rdf+xml;q=0.9, application/xml;q=0.8, text/xml;q=0.8, text/html;q=0.7, unknown/unknown;q=0.1, application/unknown;q=0.1, */*;q=0.1',
+					);
+					if (isset($this->data['headers']['last-modified']))
+					{
+						$headers['if-modified-since'] = $this->data['headers']['last-modified'];
+					}
+					if (isset($this->data['headers']['etag']))
+					{
+						$headers['if-none-match'] = $this->data['headers']['etag'];
+					}
+
+					$file = $this->registry->create('File', array($this->feed_url, $this->timeout, 5, $headers, $this->useragent, $this->force_fsockopen, $this->curl_options, $this->syslog_enabled));
+					$this->status_code = $file->status_code;
+
+					if ($file->success)
+					{
+						if ($file->status_code === 304)
+						{
+							$cache->touch();
+							return true;
+						}
+					}
+					else
+					{
+						$this->check_modified = false;
+						$cache->touch();
+						$this->error = $file->error;
+						return !empty($this->data);
+					}
+
+					$md5 = $this->cleanMd5($file->body);
+					if ($this->data['md5'] === $md5) {
+						if ($this->syslog_enabled)
+						{
+							syslog(LOG_DEBUG, 'SimplePie MD5 cache match for ' . SimplePie_Misc::url_remove_credentials($this->feed_url));
+						}
+						$cache->touch();
+						return true;	//Content unchanged even though server did not send a 304
+					} else {
+						if ($this->syslog_enabled)
+						{
+							syslog(LOG_DEBUG, 'SimplePie MD5 cache no match for ' . SimplePie_Misc::url_remove_credentials($this->feed_url));
+						}
+						$this->data['md5'] = $md5;
+					}
 				}
 			}
-			// If the cache is empty, delete it
+			// If the cache is empty
 			else
 			{
-				$cache->unlink();
+				$cache->touch();	//To keep the date/time of the last tentative update
 				$this->data = array();
 			}
 		}
@@ -1683,7 +1756,7 @@ class SimplePie
 				$headers = array(
 					'Accept' => 'application/atom+xml, application/rss+xml, application/rdf+xml;q=0.9, application/xml;q=0.8, text/xml;q=0.8, text/html;q=0.7, unknown/unknown;q=0.1, application/unknown;q=0.1, */*;q=0.1',
 				);
-				$file = $this->registry->create('File', array($this->feed_url, $this->timeout, 5, $headers, $this->useragent, $this->force_fsockopen, $this->curl_options));
+				$file = $this->registry->create('File', array($this->feed_url, $this->timeout, 5, $headers, $this->useragent, $this->force_fsockopen, $this->curl_options, $this->syslog_enabled));
 			}
 		}
 		$this->status_code = $file->status_code;
@@ -1764,6 +1837,8 @@ class SimplePie
 				if ($cache)
 				{
 					$this->data = array('url' => $this->feed_url, 'feed_url' => $file->url, 'build' => SIMPLEPIE_BUILD);
+					$this->data['mtime'] = time();
+					$this->data['md5'] = empty($md5) ? $this->cleanMd5($file->body) : $md5;
 					if (!$cache->save($this))
 					{
 						trigger_error("$this->cache_location is not writable. Make sure you've set the correct relative or absolute path, and that the location is server-writable.", E_USER_WARNING);
@@ -1775,6 +1850,7 @@ class SimplePie
 			$locate = null;
 		}
 
+		$file->body = trim($file->body);	//FreshRSS
 		$this->raw_data = $file->body;
 		$this->permanent_url = $file->permanent_url;
 		$headers = $file->headers;
@@ -2199,7 +2275,7 @@ class SimplePie
 	 */
 	public function get_base($element = array())
 	{
-		if (!($this->get_type() & SIMPLEPIE_TYPE_RSS_SYNDICATION) && !empty($element['xml_base_explicit']) && isset($element['xml_base']))
+		if (!empty($element['xml_base_explicit']) && isset($element['xml_base']))
 		{
 			return $element['xml_base'];
 		}
@@ -2650,12 +2726,14 @@ class SimplePie
 		if (isset($this->data['headers']['link']))
 		{
 			$link_headers = $this->data['headers']['link'];
-			if (is_string($link_headers)) {
-				$link_headers = array($link_headers);
+			if (is_array($link_headers)) {
+				$link_headers = implode(',', $link_headers);
 			}
-			$matches = preg_filter('/<([^>]+)>; rel='.preg_quote($rel).'/', '$1', $link_headers);
-			if (!empty($matches)) {
-				return $matches;
+			// https://datatracker.ietf.org/doc/html/rfc8288
+			if (is_string($link_headers) &&
+				preg_match_all('/<(?P<uri>[^>]+)>\s*;\s*rel\s*=\s*(?P<quote>"?)' . preg_quote($rel) . '(?P=quote)\s*(?=,|$)/i', $link_headers, $matches))
+			{
+				return $matches['uri'];
 			}
 		}
 
