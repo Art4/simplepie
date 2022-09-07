@@ -5,7 +5,7 @@
  * A PHP-Based RSS and Atom Feed Framework.
  * Takes the hard work out of managing a complete RSS/Atom solution.
  *
- * Copyright (c) 2004-2016, Ryan Parman, Sam Sneddon, Ryan McCue, and contributors
+ * Copyright (c) 2004-2022, Ryan Parman, Sam Sneddon, Ryan McCue, and contributors
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are
@@ -33,7 +33,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  *
  * @package SimplePie
- * @copyright 2004-2016 Ryan Parman, Sam Sneddon, Ryan McCue
+ * @copyright 2004-2022 Ryan Parman, Sam Sneddon, Ryan McCue
  * @author Ryan Parman
  * @author Sam Sneddon
  * @author Ryan McCue
@@ -43,16 +43,16 @@
 
 class SubscribeUrlTest extends PHPUnit\Framework\TestCase
 {
-	public function testDirectOverrideLegacy()
-	{
-		$feed = new SimplePie();
-		$feed->get_registry()->register('File', MockSimplePie_RedirectingFile::class);
-		$feed->enable_cache(false);
-		$feed->set_feed_url('http://example.com/feed/');
+    public function testDirectOverrideLegacy()
+    {
+        $feed = new SimplePie();
+        $feed->get_registry()->register('File', MockSimplePie_RedirectingFile::class);
+        $feed->enable_cache(false);
+        $feed->set_feed_url('http://example.com/feed/');
 
-		$feed->init();
+        $feed->init();
 
-		$this->assertSame('https://example.com/feed/2019-10-07', $feed->subscribe_url());
-		$this->assertSame('https://example.com/feed/', $feed->subscribe_url(true));
-	}
+        $this->assertSame('https://example.com/feed/2019-10-07', $feed->subscribe_url());
+        $this->assertSame('https://example.com/feed/', $feed->subscribe_url(true));
+    }
 }

@@ -7,7 +7,7 @@
  * A PHP-Based RSS and Atom Feed Framework.
  * Takes the hard work out of managing a complete RSS/Atom solution.
  *
- * Copyright (c) 2004-2016, Ryan Parman, Sam Sneddon, Ryan McCue, and contributors
+ * Copyright (c) 2004-2022, Ryan Parman, Sam Sneddon, Ryan McCue, and contributors
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are
@@ -35,7 +35,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  *
  * @package SimplePie
- * @copyright 2004-2016 Ryan Parman, Sam Sneddon, Ryan McCue
+ * @copyright 2004-2022 Ryan Parman, Sam Sneddon, Ryan McCue
  * @author Ryan Parman
  * @author Sam Sneddon
  * @author Ryan McCue
@@ -43,74 +43,71 @@
  * @license http://www.opensource.org/licenses/bsd-license.php BSD License
  */
 
-require_once dirname(__FILE__) . '/bootstrap.php';
-
 class HTTPParserTest extends PHPUnit\Framework\TestCase
 {
-	public static function chunkedProvider()
-	{
-		return array(
-			array(
-				"25\r\nThis is the data in the first chunk\r\n\r\n1A\r\nand this is the second one\r\n0\r\n",
-				"This is the data in the first chunk\r\nand this is the second one"
-			),
-			array(
-				"02\r\nab\r\n04\r\nra\nc\r\n06\r\nadabra\r\n0\r\nnothing\n",
-				"abra\ncadabra"
-			),
-			array(
-				"02\r\nab\r\n04\r\nra\nc\r\n06\r\nadabra\r\n0c\r\n\nall we got\n",
-				"abra\ncadabra\nall we got\n"
-			),
-		);
-	}
+    public static function chunkedProvider()
+    {
+        return [
+            [
+                "25\r\nThis is the data in the first chunk\r\n\r\n1A\r\nand this is the second one\r\n0\r\n",
+                "This is the data in the first chunk\r\nand this is the second one"
+            ],
+            [
+                "02\r\nab\r\n04\r\nra\nc\r\n06\r\nadabra\r\n0\r\nnothing\n",
+                "abra\ncadabra"
+            ],
+            [
+                "02\r\nab\r\n04\r\nra\nc\r\n06\r\nadabra\r\n0c\r\n\nall we got\n",
+                "abra\ncadabra\nall we got\n"
+            ],
+        ];
+    }
 
-	/**
-	 * @dataProvider chunkedProvider
-	 */
-	public function testChunkedNormal($data, $expected)
-	{
-		$data = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nTransfer-Encoding: chunked\r\n\r\n" . $data;
-		$data = SimplePie_HTTP_Parser::prepareHeaders($data);
-		$parser = new SimplePie_HTTP_Parser($data);
-		$this->assertTrue($parser->parse());
-		$this->assertSame(1.1, $parser->http_version);
-		$this->assertSame(200, $parser->status_code);
-		$this->assertSame('OK', $parser->reason);
-		$this->assertSame(array('content-type' => 'text/plain'), $parser->headers);
-		$this->assertSame($expected, $parser->body);
+    /**
+     * @dataProvider chunkedProvider
+     */
+    public function testChunkedNormal($data, $expected)
+    {
+        $data = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nTransfer-Encoding: chunked\r\n\r\n" . $data;
+        $data = SimplePie_HTTP_Parser::prepareHeaders($data);
+        $parser = new SimplePie_HTTP_Parser($data);
+        $this->assertTrue($parser->parse());
+        $this->assertSame(1.1, $parser->http_version);
+        $this->assertSame(200, $parser->status_code);
+        $this->assertSame('OK', $parser->reason);
+        $this->assertSame(['content-type' => 'text/plain'], $parser->headers);
+        $this->assertSame($expected, $parser->body);
+    }
 
-	}
+    /**
+     * @dataProvider chunkedProvider
+     */
+    public function testChunkedProxy($data, $expected)
+    {
+        $data = "HTTP/1.0 200 Connection established\r\n\r\nHTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nTransfer-Encoding: chunked\r\n\r\n" . $data;
+        $data = SimplePie_HTTP_Parser::prepareHeaders($data);
+        $parser = new SimplePie_HTTP_Parser($data);
+        $this->assertTrue($parser->parse());
+        $this->assertSame(1.1, $parser->http_version);
+        $this->assertSame(200, $parser->status_code);
+        $this->assertSame('OK', $parser->reason);
+        $this->assertSame(['content-type' => 'text/plain'], $parser->headers);
+        $this->assertSame($expected, $parser->body);
+    }
 
-	/**
-	 * @dataProvider chunkedProvider
-	 */
-	public function testChunkedProxy($data, $expected)
-	{
-		$data = "HTTP/1.0 200 Connection established\r\n\r\nHTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nTransfer-Encoding: chunked\r\n\r\n" . $data;
-		$data = SimplePie_HTTP_Parser::prepareHeaders($data);
-		$parser = new SimplePie_HTTP_Parser($data);
-		$this->assertTrue($parser->parse());
-		$this->assertSame(1.1, $parser->http_version);
-		$this->assertSame(200, $parser->status_code);
-		$this->assertSame('OK', $parser->reason);
-		$this->assertSame(array('content-type' => 'text/plain'), $parser->headers);
-		$this->assertSame($expected, $parser->body);
-	}
-
-	/**
-	 * @dataProvider chunkedProvider
-	 */
-	public function testChunkedProxy11($data, $expected)
-	{
-		$data = "HTTP/1.1 200 Connection established\r\n\r\nHTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nTransfer-Encoding: chunked\r\n\r\n" . $data;
-		$data = SimplePie_HTTP_Parser::prepareHeaders($data);
-		$parser = new SimplePie_HTTP_Parser($data);
-		$this->assertTrue($parser->parse());
-		$this->assertSame(1.1, $parser->http_version);
-		$this->assertSame(200, $parser->status_code);
-		$this->assertSame('OK', $parser->reason);
-		$this->assertSame(array('content-type' => 'text/plain'), $parser->headers);
-		$this->assertSame($expected, $parser->body);
-	}
+    /**
+     * @dataProvider chunkedProvider
+     */
+    public function testChunkedProxy11($data, $expected)
+    {
+        $data = "HTTP/1.1 200 Connection established\r\n\r\nHTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nTransfer-Encoding: chunked\r\n\r\n" . $data;
+        $data = SimplePie_HTTP_Parser::prepareHeaders($data);
+        $parser = new SimplePie_HTTP_Parser($data);
+        $this->assertTrue($parser->parse());
+        $this->assertSame(1.1, $parser->http_version);
+        $this->assertSame(200, $parser->status_code);
+        $this->assertSame('OK', $parser->reason);
+        $this->assertSame(['content-type' => 'text/plain'], $parser->headers);
+        $this->assertSame($expected, $parser->body);
+    }
 }
